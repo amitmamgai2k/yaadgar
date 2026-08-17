@@ -188,18 +188,17 @@ function generateFallback(topic) {
   const clean = topic.trim();
   const words = clean.split(/\s+/);
 
-  // Build a two-line title: first line is the topic in caps, second is a Hindi nostalgia tag
+  // Build a title: first line is the topic in caps
   const titleLine1 = clean.toUpperCase();
-  const titleLine2 = 'यादों का सफ़र';
 
   return {
-    title: [titleLine1, titleLine2],
+    title: [titleLine1],
     quotes: [
-      `${clean} — वो दिन भी क्या दिन थे`,
-      `कुछ यादें कभी पुरानी नहीं होतीं, जैसे ${clean.toLowerCase()}`,
-      'Woh lamhe, woh baatein — dil mein aaj bhi zinda hain',
-      'Nostalgia hits different jab asli yaadein ho',
-      `${clean} ke woh din — ab bas photos mein hain`,
+      'Music and memories — some things are simply timeless',
+      'Those moments — simple, pure, and absolutely unforgettable',
+      'Kuch dhun sunte hi purani yaadein taaza ho jaati hain',
+      'Every melody carries a beautiful story from the past',
+      'Woh beete hue pal, jo aaj bhi chehre par muskaan le aate hain',
     ],
     detailLabels: [
       `MEMORY #${Math.floor(1990 + Math.random() * 20)}`,
