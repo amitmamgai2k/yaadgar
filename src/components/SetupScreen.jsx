@@ -28,6 +28,7 @@ export default function SetupScreen() {
   const [imageError, setImageError] = useState('');
   const [playlistError, setPlaylistError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isCompressingImage, setIsCompressingImage] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [isDragOver, setIsDragOver] = useState(false);
   const [authNotice, setAuthNotice] = useState(null);
@@ -66,7 +67,88 @@ export default function SetupScreen() {
   }, [searchParams]);
 
   // ── Image Handling ──
-  const handleImageFile = useCallback((file) => {
+  const compressImageFile = useCallback(async (file) => {
+    if (!file || !file.type.startsWith('image/')) return file;
+
+    try {
+      const imageSource = await new Promise((resolve, reject) => {
+        if (typeof createImageBitmap === 'function') {
+          createImageBitmap(file)
+            .then(resolve)
+            .catch(reject);
+          return;
+        }
+
+        const objectUrl = URL.createObjectURL(file);
+        const img = new Image();
+
+        img.onload = () => {
+          URL.revokeObjectURL(objectUrl);
+          resolve(img);
+        };
+
+        img.onerror = () => {
+          URL.revokeObjectURL(objectUrl);
+          reject(new Error('Unable to read image.'));
+        };
+
+        img.src = objectUrl;
+      });
+
+      const sourceWidth = imageSource.width || 1;
+      const sourceHeight = imageSource.height || 1;
+      const maxSourceDimension = Math.max(sourceWidth, sourceHeight);
+      const scale = maxSourceDimension > 1920 ? 1920 / maxSourceDimension : 1;
+      const width = Math.max(1, Math.round(sourceWidth * scale));
+      const height = Math.max(1, Math.round(sourceHeight * scale));
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+
+      const context = canvas.getContext('2d');
+      if (!context) return file;
+
+      context.fillStyle = '#ffffff';
+      context.fillRect(0, 0, width, height);
+      context.drawImage(imageSource, 0, 0, width, height);
+
+      const qualities = [0.82, 0.72, 0.6, 0.5];
+      let bestBlob = null;
+
+      for (const quality of qualities) {
+        const blob = await new Promise((resolve) => {
+          canvas.toBlob((result) => resolve(result), 'image/jpeg', quality);
+        });
+
+        if (!blob) continue;
+
+        if (blob.size <= 3.5 * 1024 * 1024) {
+          return new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), {
+            type: 'image/jpeg',
+            lastModified: Date.now(),
+          });
+        }
+
+        if (!bestBlob || blob.size < bestBlob.size) {
+          bestBlob = blob;
+        }
+      }
+
+      if (bestBlob) {
+        return new File([bestBlob], file.name.replace(/\.[^.]+$/, '.jpg'), {
+          type: 'image/jpeg',
+          lastModified: Date.now(),
+        });
+      }
+
+      return file;
+    } catch (error) {
+      return file;
+    }
+  }, []);
+
+  const handleImageFile = useCallback(async (file) => {
     setImageError('');
     if (!file) return;
 
@@ -75,11 +157,27 @@ export default function SetupScreen() {
       return;
     }
 
-    setImageFile(file);
-    const reader = new FileReader();
-    reader.onload = (e) => setImagePreview(e.target.result);
-    reader.readAsDataURL(file);
-  }, []);
+    setIsCompressingImage(true);
+
+    try {
+      const processedFile = await compressImageFile(file);
+      setImageFile(processedFile);
+      const reader = new FileReader();
+      reader.onload = (e) => setImagePreview(e.target.result);
+      reader.readAsDataURL(processedFile);
+
+      if (processedFile.size > 4 * 1024 * 1024) {
+        setImageError('This photo is still too large for upload. Please choose a smaller one.');
+      }
+    } catch (error) {
+      setImageFile(file);
+      const reader = new FileReader();
+      reader.onload = (e) => setImagePreview(e.target.result);
+      reader.readAsDataURL(file);
+    } finally {
+      setIsCompressingImage(false);
+    }
+  }, [compressImageFile]);
 
   const handleFileDrop = useCallback((e) => {
     e.preventDefault();
@@ -160,7 +258,22 @@ export default function SetupScreen() {
           body: formData,
         });
 
-        const data = await res.json();
+        const rawText = await res.text();
+        let data = {};
+
+        try {
+          data = rawText ? JSON.parse(rawText) : {};
+        } catch (parseError) {
+          if (res.status === 413) {
+            throw new Error('That image is too large even after compression — please try a smaller photo.');
+          }
+
+          if (res.status === 504) {
+            throw new Error('The upload timed out. Please try again.');
+          }
+
+          throw new Error('Upload failed. Please try again in a moment.');
+        }
 
         if (!res.ok || !data.success) {
           if (data.authRequired && data.authUrl) {
@@ -239,17 +352,17 @@ export default function SetupScreen() {
             </div>
           ) : (
             <div
-              className={`upload-zone${isDragOver ? ' upload-zone--dragover' : ''}`}
-              onClick={() => fileInputRef.current?.click()}
-              onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
+              className={`upload-zone${isDragOver ? ' upload-zone--dragover' : ''}${isCompressingImage ? ' upload-zone--loading' : ''}`}
+              onClick={() => !isCompressingImage && fileInputRef.current?.click()}
+              onDragOver={(e) => { if (!isCompressingImage) { e.preventDefault(); setIsDragOver(true); } }}
               onDragLeave={() => setIsDragOver(false)}
-              onDrop={handleFileDrop}
+              onDrop={(e) => { if (!isCompressingImage) handleFileDrop(e); }}
             >
               <div className="upload-zone__icon">📸</div>
               <div className="upload-zone__text">
-                <strong>Click to upload</strong> or drag and drop
+                {isCompressingImage ? <strong>Optimizing photo…</strong> : <><strong>Click to upload</strong> or drag and drop</>}
               </div>
-              <div className="upload-zone__formats">JPG, PNG, or WebP • Max 10 MB</div>
+              <div className="upload-zone__formats">JPG, PNG, or WebP • Large photos are optimized automatically</div>
               <input
                 ref={fileInputRef}
                 type="file"

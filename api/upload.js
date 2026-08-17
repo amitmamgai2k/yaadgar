@@ -9,7 +9,7 @@ export const config = {
   },
 };
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
+const MAX_FILE_SIZE = 4 * 1024 * 1024; // 4 MB
 const ALLOWED_MIMETYPES = new Set([
   'image/jpeg',
   'image/png',
